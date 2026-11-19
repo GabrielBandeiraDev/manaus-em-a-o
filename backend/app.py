@@ -8,6 +8,7 @@ import os
 import secrets
 import time
 from pathlib import Path
+from urllib.parse import quote, unquote
 from uuid import uuid4
 
 from dotenv import load_dotenv
@@ -69,11 +70,25 @@ def _limitado(app: Flask) -> bool:
     return False
 
 
+def _normalizar_uri(valor: str) -> str:
+    if not _uri_banco(valor):
+        return valor
+    scheme, rest = valor.split("://", 1)
+    if "@" not in rest or ":" not in rest.split("@", 1)[0]:
+        return valor
+    userinfo, host = rest.rsplit("@", 1)
+    usuario, senha = userinfo.split(":", 1)
+    senha = unquote(senha)
+    if len(senha) >= 2 and senha.startswith("[") and senha.endswith("]"):
+        senha = senha[1:-1]
+    return f"{scheme}://{quote(usuario, safe='')}:{quote(senha, safe='')}@{host}"
+
+
 def _valor_supabase() -> str:
     for nome in ("supabase", "SUPABASE"):
         bruto = os.environ.get(nome, "")
         if isinstance(bruto, str) and bruto.strip():
-            return bruto.strip().strip('"').strip("'")
+            return _normalizar_uri(bruto.strip().strip('"').strip("'"))
     return ""
 
 

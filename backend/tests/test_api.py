@@ -62,6 +62,18 @@ def test_para_publico_esconde_contato():
     assert "bairro" not in saida
 
 
+def test_uri_codifica_arroba_da_senha_e_tira_colchetes(monkeypatch):
+    from app import _valor_supabase
+
+    monkeypatch.setenv(
+        "supabase",
+        "postgresql://postgres:[abc@def]@db.exemplo.supabase.co:5432/postgres",
+    )
+    uri = _valor_supabase()
+    assert uri == "postgresql://postgres:abc%40def@db.exemplo.supabase.co:5432/postgres"
+    assert "[abc@def]" not in uri
+
+
 def test_health_le_variavel_supabase_sem_vazar_senha(monkeypatch):
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
