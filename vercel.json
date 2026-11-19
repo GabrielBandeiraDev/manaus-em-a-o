@@ -1,0 +1,36 @@
+{
+  "services": {
+    "site": {
+      "root": ".",
+      "framework": "vite",
+      "buildCommand": "npm run build"
+    },
+    "pagine-bandeira-api": {
+      "root": "backend",
+      "entrypoint": "app:app",
+      "buildCommand": "pip install -r requirements.txt"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": { "service": "pagine-bandeira-api" }
+    },
+    {
+      "source": "/admin",
+      "destination": { "service": "pagine-bandeira-api" }
+    },
+    {
+      "source": "/admin/(.*)",
+      "destination": { "service": "pagine-bandeira-api" }
+    },
+    {
+      "source": "/health",
+      "destination": { "service": "pagine-bandeira-api" }
+    },
+    {
+      "source": "/(.*)",
+      "destination": { "service": "site" }
+    }
+  ]
+}

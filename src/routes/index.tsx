@@ -43,8 +43,9 @@ const REGRAS = [
 
 function apiBase(): string {
   const bruto = import.meta.env["VITE_API_URL"];
-  if (typeof bruto !== "string" || bruto.trim() === "") return "http://127.0.0.1:5000";
-  return bruto.replace(/\/$/, "");
+  if (typeof bruto === "string" && bruto.trim() !== "") return bruto.replace(/\/$/, "");
+  if (import.meta.env["DEV"]) return "http://127.0.0.1:5000";
+  return "";
 }
 
 function campo(valor: unknown): string | null {
