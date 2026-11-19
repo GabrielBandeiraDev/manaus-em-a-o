@@ -6,13 +6,9 @@ Recebe a reclamação com nome, endereço, problema e foto. Publica a notícia n
 
 1. Cria um projeto em [supabase.com](https://supabase.com).
 2. Abre **SQL Editor** e cola o arquivo `sql/schema.sql`. Roda.
-3. Em **Project Settings → API**, copia:
-   - **Project URL** → `SUPABASE_URL`
-   - **service_role** (secret) → `SUPABASE_SERVICE_ROLE_KEY`
+3. Em **Connect**, copia a URI do banco (começa com `postgresql://`) para a variável `supabase`.
 
-A chave `anon` / publishable não serve. A tabela está fechada para ela. A `service_role` fica só no Render, nunca no site.
-
-O SQL cria a tabela `reclamacoes` (com RLS ligado e sem policy pública) e o bucket público `reclamacoes-fotos`.
+A URI fica só no Render ou em `backend/.env`. Não vai para o site nem para o Git.
 
 ## 2. GitHub e Render
 
@@ -20,10 +16,7 @@ O repositório já aponta para `https://github.com/GabrielBandeiraDev/manaus-em-
 
 No Render, cria um **Blueprint** (não um Web Service comum). O serviço comum vê o `package.json` e sobe o site em Node. O Blueprint lê o `render.yaml` e sobe só `backend/`.
 
-Na tela do Blueprint, preenche só estes dois:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
+Na tela do Blueprint, preenche a variável `supabase` com a URI do banco.
 
 O `ADMIN_TOKEN` o Render gera. Copia esse valor: é a senha do `/admin`.
 
@@ -31,8 +24,7 @@ Variáveis:
 
 | Variável | Valor |
 | --- | --- |
-| `SUPABASE_URL` | `https://xxxx.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | service_role |
+| `supabase` | `postgresql://postgres:...@db.xxxx.supabase.co:5432/postgres` |
 | `ADMIN_TOKEN` | o Render gera. Copia e guarda. |
 | `CORS_ORIGINS` | `*` ou a URL do site |
 | `PUBLICAR_AUTOMATICO` | `true` |

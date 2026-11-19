@@ -10,6 +10,8 @@ services:
         value: "3.12.8"
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: supabase
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

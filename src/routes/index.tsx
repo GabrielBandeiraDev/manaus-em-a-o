@@ -199,7 +199,7 @@ function Index() {
 
   const Card = ({ item }: { item: Noticia }) => (
     <article className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      {item.foto_url.startsWith("https://") ? (
+      {item.foto_url.startsWith("http://") || item.foto_url.startsWith("https://") ? (
         <img
           src={item.foto_url}
           alt={`Problema em ${item.endereco}`}

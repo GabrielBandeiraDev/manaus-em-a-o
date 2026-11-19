@@ -22,6 +22,8 @@ def _formulario():
 
 
 def _cliente(monkeypatch, testing=True):
+    monkeypatch.delenv("supabase", raising=False)
+    monkeypatch.delenv("SUPABASE", raising=False)
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
     monkeypatch.delenv("ADMIN_TOKEN", raising=False)
@@ -58,6 +60,35 @@ def test_para_publico_esconde_contato():
     assert saida["endereco"] == "Rua das Flores, 10"
     assert "telefone" not in saida
     assert "bairro" not in saida
+
+
+def test_health_le_variavel_supabase_sem_vazar_senha(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    monkeypatch.setenv(
+        "supabase",
+        "postgresql://postgres:segredo@db.exemplo.supabase.co:5432/postgres",
+    )
+    cliente = create_app(testing=True).test_client()
+    resposta = cliente.get("/health")
+    texto = resposta.get_data(as_text=True)
+    assert resposta.get_json()["supabase"] is True
+    assert "segredo" not in texto
+    assert "postgresql" not in texto
+
+    recusado = cliente.post("/api/reclamacoes", data={"nome": "Ana"})
+    assert recusado.status_code == 400
+
+
+def test_variavel_supabase_invalida_nao_eco_o_valor(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    monkeypatch.setenv("supabase", "isto-nao-e-uri")
+    cliente = create_app(testing=True).test_client()
+    resposta = cliente.post("/api/reclamacoes", data=_formulario())
+    assert resposta.status_code == 503
+    assert "postgresql://" in resposta.get_json()["erro"]
+    assert "isto-nao-e-uri" not in resposta.get_data(as_text=True)
 
 
 def test_health_regras_e_admin(monkeypatch):

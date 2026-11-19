@@ -11,9 +11,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
+from banco import Postgres
 from regras import REGRAS, ErroReclamacao, preparar_foto, validar_campos
 from supabase_api import COLUNAS_PUBLICAS, Supabase, SupabaseErro
 
@@ -67,15 +69,50 @@ def _limitado(app: Flask) -> bool:
     return False
 
 
-def _supabase() -> Supabase:
+def _valor_supabase() -> str:
+    for nome in ("supabase", "SUPABASE"):
+        bruto = os.environ.get(nome, "")
+        if isinstance(bruto, str) and bruto.strip():
+            return bruto.strip().strip('"').strip("'")
+    return ""
+
+
+def _uri_banco(valor: str) -> bool:
+    return valor.startswith("postgres://") or valor.startswith("postgresql://")
+
+
+def _supabase_configurado() -> bool:
+    if _uri_banco(_valor_supabase()):
+        return True
     url = os.getenv("SUPABASE_URL", "").strip()
     chave = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-    if not url or not chave:
+    return bool(url and chave)
+
+
+def _abrir() -> Postgres | Supabase:
+    valor = _valor_supabase()
+    if _uri_banco(valor):
+        return Postgres(valor)
+    if valor.startswith("http://") or valor.startswith("https://"):
         raise SupabaseErro(
-            "Supabase ainda não configurado. Falta SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY.",
+            "A variável supabase precisa da URI do banco, a que começa com postgresql://.",
             503,
         )
-    return Supabase(url, chave)
+    url = os.getenv("SUPABASE_URL", "").strip()
+    chave = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if url and chave:
+        return Supabase(url, chave)
+    raise SupabaseErro(
+        "Supabase ainda não configurado. Coloca na variável supabase a URI do banco (postgresql://...).",
+        503,
+    )
+
+
+def _base_publica() -> str:
+    fixo = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if fixo:
+        return fixo
+    return request.url_root.rstrip("/")
 
 
 def _admin_recusado():
@@ -90,8 +127,14 @@ def _admin_recusado():
 
 def create_app(testing: bool = False) -> Flask:
     if not testing:
-        load_dotenv(RAIZ / ".env")
+        env_repo = RAIZ.parent / ".env"
+        env_back = RAIZ / ".env"
+        if env_repo.is_file():
+            load_dotenv(env_repo)
+        if env_back.is_file():
+            load_dotenv(env_back, override=True)
     app = Flask(__name__)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
     app.config["TESTING"] = testing
     app.config["RATE_BUCKETS"] = {}
@@ -131,7 +174,7 @@ def create_app(testing: bool = False) -> Flask:
     def health():
         return jsonify(
             ok=True,
-            supabase=bool(os.getenv("SUPABASE_URL", "").strip() and os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()),
+            supabase=_supabase_configurado(),
         )
 
     @app.get("/api/regras")
@@ -144,7 +187,7 @@ def create_app(testing: bool = False) -> Flask:
     @app.get("/api/noticias")
     def noticias():
         try:
-            linhas = _supabase().listar_publicas()
+            linhas = _abrir().listar_publicas()
         except SupabaseErro as exc:
             return jsonify(erro=exc.mensagem), exc.status
         resposta = jsonify(noticias=[para_publico(linha) for linha in linhas])
@@ -169,26 +212,33 @@ def create_app(testing: bool = False) -> Flask:
             return jsonify(erro="Muitas reclamações deste acesso agora. Espera um pouco e tenta de novo."), 429
 
         try:
-            cliente = _supabase()
+            cliente = _abrir()
         except SupabaseErro as exc:
             return jsonify(erro=exc.mensagem), exc.status
 
-        caminho = f"noticias/{uuid4().hex}.{extensao}"
-        try:
-            foto_url = cliente.subir_foto(caminho, limpa, content_type)
-            status = "publicada" if _ligado("PUBLICAR_AUTOMATICO", "true") else "recebida"
-            row = cliente.inserir(
-                {
-                    **campos,
-                    "foto_path": caminho,
-                    "foto_url": foto_url,
-                    "foto_sha256": hashlib.sha256(limpa).hexdigest(),
-                    "status": status,
-                }
-            )
-        except SupabaseErro as exc:
-            cliente.apagar_foto(caminho)
-            return jsonify(erro=exc.mensagem), exc.status
+        status = "publicada" if _ligado("PUBLICAR_AUTOMATICO", "true") else "recebida"
+        sha = hashlib.sha256(limpa).hexdigest()
+        if isinstance(cliente, Postgres):
+            try:
+                row = cliente.salvar(campos, limpa, sha, status, _base_publica())
+            except SupabaseErro as exc:
+                return jsonify(erro=exc.mensagem), exc.status
+        else:
+            caminho = f"noticias/{uuid4().hex}.{extensao}"
+            try:
+                foto_url = cliente.subir_foto(caminho, limpa, content_type)
+                row = cliente.inserir(
+                    {
+                        **campos,
+                        "foto_path": caminho,
+                        "foto_url": foto_url,
+                        "foto_sha256": sha,
+                        "status": status,
+                    }
+                )
+            except SupabaseErro as exc:
+                cliente.apagar_foto(caminho)
+                return jsonify(erro=exc.mensagem), exc.status
 
         if status == "publicada":
             mensagem = "Reclamação publicada no mural."
@@ -205,7 +255,7 @@ def create_app(testing: bool = False) -> Flask:
         if recusado:
             return recusado
         try:
-            linhas = _supabase().listar_admin()
+            linhas = _abrir().listar_admin()
         except SupabaseErro as exc:
             return jsonify(erro=exc.mensagem), exc.status
         resposta = jsonify(reclamacoes=[para_admin(linha) for linha in linhas])
@@ -222,12 +272,28 @@ def create_app(testing: bool = False) -> Flask:
         if status not in STATUS_OK:
             return jsonify(erro="Status inválido. Usa recebida, publicada, resolvida ou rejeitada."), 400
         try:
-            row = _supabase().atualizar_status(item_id, status)
+            row = _abrir().atualizar_status(item_id, status)
         except SupabaseErro as exc:
             return jsonify(erro=exc.mensagem), exc.status
         resposta = jsonify(reclamacao=para_admin(row))
         resposta.headers["Cache-Control"] = "no-store"
         return resposta
+
+    @app.get("/api/fotos/<int:item_id>")
+    def foto(item_id: int):
+        try:
+            cliente = _abrir()
+        except SupabaseErro as exc:
+            return jsonify(erro=exc.mensagem), exc.status
+        if not isinstance(cliente, Postgres):
+            return jsonify(erro="Foto não encontrada."), 404
+        try:
+            dados = cliente.ler_foto(item_id)
+        except SupabaseErro as exc:
+            return jsonify(erro=exc.mensagem), exc.status
+        if not dados:
+            return jsonify(erro="Foto não encontrada."), 404
+        return Response(dados, mimetype="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/admin")
     @app.get("/admin/")
@@ -241,7 +307,7 @@ def create_app(testing: bool = False) -> Flask:
         logging.basicConfig(level=logging.INFO)
         log.info(
             "api pronta. supabase=%s",
-            bool(os.getenv("SUPABASE_URL", "").strip() and os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()),
+            _supabase_configurado(),
         )
 
     return app

@@ -11,6 +11,7 @@ create table if not exists public.reclamacoes (
   foto_path text not null,
   foto_url text not null,
   foto_sha256 text not null,
+  foto_bytes bytea,
   status text not null default 'publicada',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -43,6 +44,7 @@ alter table public.reclamacoes drop constraint if exists reclamacoes_tipo_chk;
 alter table public.reclamacoes drop column if exists telefone;
 alter table public.reclamacoes drop column if exists bairro;
 alter table public.reclamacoes drop column if exists tipo;
+alter table public.reclamacoes add column if not exists foto_bytes bytea;
 
 create index if not exists reclamacoes_created_at_idx
   on public.reclamacoes (created_at desc);
