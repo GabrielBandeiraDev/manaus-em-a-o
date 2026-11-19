@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Equipe · Problemas de Manaus</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: #f4f1e8; color: #1c1915; }
+    header { background: #143d73; color: white; padding: 20px 16px; }
+    header h1 { margin: 0; font-size: 1.4rem; }
+    main { max-width: 920px; margin: 0 auto; padding: 16px; }
+    form, article { background: white; border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
+    label { display: block; font-weight: 700; margin-bottom: 8px; }
+    input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
+    button { border: 0; border-radius: 8px; padding: 8px 12px; font-weight: 700; cursor: pointer; }
+    button.primario { background: #143d73; color: white; }
+    button.neutro { background: #ece7dc; }
+    button.perigo { background: #8d1d1d; color: white; }
+    button.ok { background: #1f6b3a; color: white; }
+    .acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .lista { display: grid; gap: 12px; margin-top: 16px; }
+    img { width: 100%; max-height: 240px; object-fit: cover; border-radius: 8px; background: #eee; }
+    .meta { color: #5c564c; font-size: 0.92rem; }
+    .aviso { margin: 12px 0; font-weight: 700; }
+    a { color: #143d73; }
+    .topo { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Equipe · Problemas de Manaus</h1>
+    <p>Nome, endereço, problema e foto.</p>
+  </header>
+  <main>
+    <form id="entrada">
+      <label for="token">Token de admin</label>
+      <input id="token" type="password" autocomplete="current-password" />
+      <div class="acoes">
+        <button class="primario" type="submit">Entrar</button>
+      </div>
+    </form>
+    <p id="aviso" class="aviso"></p>
+    <div id="painel" hidden>
+      <div class="topo">
+        <strong id="contagem"></strong>
+        <button id="sair" class="neutro" type="button">Sair</button>
+      </div>
+      <div id="lista" class="lista"></div>
+    </div>
+  </main>
+  <script>
+    const CHAVE = "pb-admin-token";
+    const aviso = document.querySelector("#aviso");
+    const painel = document.querySelector("#painel");
+    const lista = document.querySelector("#lista");
+    const contagem = document.querySelector("#contagem");
+    const entrada = document.querySelector("#entrada");
+
+    function token() {
+      return sessionStorage.getItem(CHAVE) || "";
+    }
+
+    function quando(iso) {
+      const data = new Date(iso);
+      if (Number.isNaN(data.getTime())) return "";
+      return data.toLocaleString("pt-BR");
+    }
+
+    function texto(pai, tag, valor) {
+      const el = document.createElement(tag);
+      el.textContent = valor;
+      pai.appendChild(el);
+      return el;
+    }
+
+    async function mudar(id, status) {
+      aviso.textContent = "";
+      const res = await fetch("/api/admin/reclamacoes/" + id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-Admin-Token": token() },
+        body: JSON.stringify({ status: status }),
+      });
+      if (res.status === 401) {
+        aviso.textContent = "Token não confere.";
+        return;
+      }
+      if (!res.ok) {
+        aviso.textContent = "Não consegui atualizar.";
+        return;
+      }
+      carregar();
+    }
+
+    function cartao(item) {
+      const artigo = document.createElement("article");
+      if (typeof item.foto_url === "string" && item.foto_url.startsWith("https://")) {
+        const img = document.createElement("img");
+        img.src = item.foto_url;
+        img.alt = "Foto da reclamação";
+        artigo.appendChild(img);
+      }
+      texto(artigo, "h2", item.nome || "");
+      texto(artigo, "p", item.endereco || "");
+      texto(artigo, "p", item.descricao || "");
+      texto(artigo, "p", quando(item.created_at) + " · " + (item.status || ""));
+      const acoes = document.createElement("div");
+      acoes.className = "acoes";
+      [
+        ["publicada", "Publicar", "primario"],
+        ["resolvida", "Resolvida", "ok"],
+        ["rejeitada", "Tirar do ar", "perigo"],
+      ].forEach(function (opcao) {
+        const botao = document.createElement("button");
+        botao.type = "button";
+        botao.className = opcao[2];
+        botao.textContent = opcao[1];
+        botao.addEventListener("click", function () { mudar(item.id, opcao[0]); });
+        acoes.appendChild(botao);
+      });
+      artigo.appendChild(acoes);
+      return artigo;
+    }
+
+    async function carregar() {
+      aviso.textContent = "";
+      let res;
+      try {
+        res = await fetch("/api/admin/reclamacoes", {
+          headers: { "X-Admin-Token": token() },
+          cache: "no-store",
+        });
+      } catch (erro) {
+        aviso.textContent = "Sem ligação com o servidor.";
+        return;
+      }
+      if (res.status === 401) {
+        aviso.textContent = "Token não confere.";
+        painel.hidden = true;
+        entrada.hidden = false;
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        aviso.textContent = data.erro || "Não consegui carregar.";
+        return;
+      }
+      const itens = Array.isArray(data.reclamacoes) ? data.reclamacoes : [];
+      entrada.hidden = true;
+      painel.hidden = false;
+      contagem.textContent = itens.length + " reclamações";
+      lista.replaceChildren();
+      itens.forEach(function (item) { lista.appendChild(cartao(item)); });
+    }
+
+    entrada.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      const valor = document.querySelector("#token").value.trim();
+      if (!valor) {
+        aviso.textContent = "Cola o ADMIN_TOKEN do Render.";
+        return;
+      }
+      sessionStorage.setItem(CHAVE, valor);
+      carregar();
+    });
+
+    document.querySelector("#sair").addEventListener("click", function () {
+      sessionStorage.removeItem(CHAVE);
+      painel.hidden = true;
+      entrada.hidden = false;
+      lista.replaceChildren();
+    });
+
+    if (token()) carregar();
+  </script>
+</body>
+</html>
